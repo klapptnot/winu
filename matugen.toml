@@ -1,0 +1,4 @@
+[config]
+[templates.inline]
+input_path = "/dev/stdin"
+output_path = "/dev/stdout"

@@ -1,0 +1,532 @@
+#!/usr/bin/bash
+
+set -u
+
+readonly WINU_THEME_ROOT="/usr/share/sddm/themes/winu"
+readonly WINU_TMP_IMAGE="${WINU_THEME_ROOT}/tmp.png"
+readonly WINU_MATUGEN_CONFIG="${WINU_THEME_ROOT}/matugen.toml"
+readonly WINU_MATUGEN_TEMPLATE='
+WINU_COLOR_PALLETE[missing]=0
+WINU_COLOR_PALLETE[background]="{{colors.background.default.hex}}"
+WINU_COLOR_PALLETE[onBackground]="{{colors.on_background.default.hex}}"
+WINU_COLOR_PALLETE[primary]="{{colors.primary.default.hex}}"
+WINU_COLOR_PALLETE[onPrimary]="{{colors.on_primary.default.hex}}"
+WINU_COLOR_PALLETE[primaryContainer]="{{colors.primary_container.default.hex}}"
+WINU_COLOR_PALLETE[surface]="{{colors.surface.default.hex}}"
+WINU_COLOR_PALLETE[onSurface]="{{colors.on_surface.default.hex}}"
+WINU_COLOR_PALLETE[surfaceVariant]="{{colors.surface_variant.default.hex}}"
+WINU_COLOR_PALLETE[onSurfaceVariant]="{{colors.on_surface_variant.default.hex}}"
+WINU_COLOR_PALLETE[outline]="{{colors.outline.default.hex}}"
+'
+declare -g WINU_CONFIG_TEMPLATE='import QtQuick 2.15
+
+QtObject {
+  readonly property var backgrounds: [
+{bg_list}
+  ]
+
+  readonly property bool use_blur: {use_blur}
+  readonly property bool use_video: {use_video}
+  readonly property bool image_carousel: {carousel_enabled}
+  readonly property real carousel_interval: {carousel_interval}
+  readonly property real inactivityTimeout: {inactive_timeout}
+  readonly property real blur_radius: {blur_radius}
+  readonly property real blur_samples: {blur_samples}
+
+  readonly property var font: {
+    "primary": "{font:primary}",
+    "segoe_ui": "{font:segoe_ui}",
+    "meiryo_boot": "{font:meiryo_boot}"
+  }
+
+  readonly property var color: {
+    "background": "{color:background}",
+    "on_background": "{color:onBackground}",
+    "primary": "{color:primary}",
+    "on_primary": "{color:onPrimary}",
+    "primary_container": "{color:primaryContainer}",
+    "surface": "{color:surface}",
+    "on_surface": "{color:onSurface}",
+    "outline": "{color:outline}"
+  }
+}
+'
+declare -Ag WINU_COLOR_PALLETE=([missing]=1)
+
+function yq.sh {
+  declare -Ag "${1:?}=()"
+  local __yaml_root_node="${1}"
+  local file="${2}"
+  shift 2
+
+  [[ -z "${file}" || "${file}" == '-' ]] && file='/dev/stdin'
+
+  local -a targets=("${@}")
+  local -a lines=()
+  mapfile -t lines < "${file}"
+
+  # Build a set of target section names for O(1) lookup
+  local -A target_set=()
+  for t in "${targets[@]}"; do
+    target_set["${t}"]=1
+  done
+
+  local -a pop_level=(1)
+  local -a path_spec=()
+  local -ri indent_size=2
+  local -i last_indent=-2
+  local -i curr_indent=0
+  local -i is_list=0
+  local -i wait_value=0
+  local -i expected=0
+  local -i multiline_indent=0
+  local -i multiline=0
+  local -i multiline_fold=0
+  local -i multiline_strp=0
+  local multiline_str=''
+  local path_spec_str=''
+  local multiline_npath=''
+  local multiline_nparn=''
+  local old_ifs="${IFS}"
+
+  function __yq_die {
+    local prev_line=""
+    ((ln > 0)) && prev_line="${lines[ln - 1]}"
+    local line="${lines[ln]}"
+    let ln++
+    printf -v dots '%*s' "${curr_indent}" ""
+    dots="${dots// /·}"
+
+    printf '\x1b[1;31mFile "%s", line %d\x1b[0m\n' "${file}" "${ln}" >&2
+    ((ln > 1)) && {
+      : "${prev_line%%[![:space:]]*}"
+      local plci="${#_}"
+      printf -v pldots '%*s' "${plci}" ""
+      pldots="${pldots// /·}"
+      printf ' \x1b[2m%s │\x1b[0m \x1b[2m%s\x1b[1;31m%s\x1b[0m\n' "$((ln - 1))" "${pldots}" "${prev_line:plci}" >&2
+    }
+    printf ' \x1b[2m%s │\x1b[0m \x1b[2m%s\x1b[1;31m%s\x1b[0m\n' "${ln}" "${dots}" "${line:curr_indent}" >&2
+    printf ' %*s \x1b[2m│\x1b[0m \x1b[1;31m%*s\x1b[0m\n' "${#ln}" "" "${expected}" '^' >&2
+    printf '\x1b[1;31mIndentationError:\x1b[0m expected %d, got %d\n' "${expected}" "${curr_indent}" >&2
+    exit 1
+  }
+
+  declare -i __yaml_node_idx=0
+  function __yq_store {
+    local path="${1}"
+    local val="${2}"
+
+    local -a nodes
+    IFS='.' read -r -a nodes <<< "${path}"
+    local len=${#nodes[@]}
+
+    local -n current_map="${__yaml_root_node}"
+    local current_node_name="${__yaml_root_node}"
+    for ((i = 0; i < len - 1; i++)); do
+      local node_name="${nodes[i]}"
+
+      if [[ -n "${current_map[${node_name}]:-}" ]]; then
+        current_node_name="${current_map["${node_name}"]}"
+      else
+        ((__yaml_node_idx++))
+        if [[ "${nodes[i + 1]}" =~ ^[0-9]+$ ]]; then
+          current_node_name="__yaml_list${__yaml_node_idx}"
+          declare -ag "${current_node_name}=()"
+        else
+          current_node_name="__yaml_node${__yaml_node_idx}"
+          declare -Ag "${current_node_name}=()"
+        fi
+        current_map["${node_name}"]="${current_node_name}"
+      fi
+
+      local -n current_map="${current_node_name}"
+    done
+
+    local leaf_key="${nodes[-1]}"
+    current_map["${leaf_key}"]="${val}"
+  }
+
+  local level=0
+  local last_level=0
+  local tot_lines=${#lines[@]}
+  for ((ln = 0; ln < tot_lines; ln++)); do
+    local line="${lines[ln]}"
+    case "${line}" in
+      '#'* | '---') continue ;;
+      '') ((multiline)) || continue ;;
+    esac
+
+    : "${line%%[![:space:]]*}"
+    curr_indent="${#_}"
+
+    if ((multiline)); then
+      if ((curr_indent >= multiline_indent)); then
+        line="${line:multiline_indent}"
+        multiline_str+=("${line}")
+        continue
+      else
+        ((multiline_fold)) && IFS=' ' || IFS=$'\n'
+        val="${multiline_str[*]}"
+        IFS="${old_ifs}"
+        ((multiline_strp)) && val="${val%"${val##*[![:space:]$'\n']}"}"
+
+        __yq_store "${multiline_npath}" "${val}"
+        unset 'path_spec[-1]'
+
+        val=''
+        multiline=0
+        multiline_str=()
+        multiline_npath=''
+        multiline_indent=0
+      fi
+    fi
+
+    [[ "${line#*"${line%%[![:space:]]*}"}" == '#'* ]] && continue
+
+    IFS=':' read -r key val <<< "${line}"
+    IFS="${old_ifs}"
+    read -r key <<< "${key}"
+    read -r val <<< "${val}"
+
+    last_level="${level}"
+    ((curr_indent > last_indent && wait_value)) && let level++
+    ((!pop_level[-1] && curr_indent < indent_size)) && let level++
+    while ((curr_indent < indent_size * level)); do
+      ((level--))
+      unset 'path_spec[-1]'
+      unset 'pop_level[-1]'
+    done
+    ((expected = indent_size * level))
+    ((curr_indent != expected)) && __yq_die "${ln}" "${expected}" "${curr_indent}"
+
+    if [[ "${key}" == '- '* ]]; then
+      pop_level+=(0)
+      ((wait_value)) && path_spec+=(-1)
+      ((path_spec[-1]++))
+
+      key="${key:2}"
+      if [[ -n "${val}" ]]; then # key: val
+        let level++
+        pop_level+=(1)
+        ((curr_indent = curr_indent + indent_size))
+        path_spec+=("${key}")
+      elif [[ "${line:curr_indent}" == "- ${key}:"* ]]; then # - key:
+        path_spec+=("${key}")
+      else # - value
+        val="${key}"
+      fi
+    elif [[ "${val}" == '|'* || "${val}" == '>'* ]]; then
+      multiline=1
+      multiline_fold=0
+      multiline_strp=0
+      [[ "${val:0:1}" == '>' ]] && multiline_fold=1
+      [[ "${val:1:1}" == '-' ]] && multiline_strp=1
+      ((multiline_indent = curr_indent + indent_size))
+      path_spec+=("${key}")
+      IFS=. multiline_npath="${path_spec[*]}"
+      IFS="${old_ifs}"
+      continue
+    elif [[ -n "${key}" ]]; then
+      pop_level+=(1)
+      path_spec+=("${key}")
+    fi
+
+    wait_value=1
+    [[ -z "${val}" ]] && continue
+    wait_value=0
+
+    case "${val}" in
+      "'"*"'" | '"'*'"') val="${val:1:-1}" ;;
+    esac
+
+    IFS=. path_spec_str="${path_spec[*]}"
+    IFS="${old_ifs}"
+    ((pop_level[-1])) && let level++
+    __yq_store "${path_spec_str}" "${val@E}"
+  done
+
+  ((multiline)) && __yq_store "${multiline_npath}" "${multiline_str}"
+
+  unset -f __yq_store __yaml_die
+  return 0
+}
+
+function die {
+  printf '\x1b[31m%s\x1b[0m\n' "${1}" &> /dev/stderr
+  exit 1
+}
+
+function log {
+  printf '\x1b[32m%s\x1b[0m\n' "${1}"
+}
+
+function is-declared {
+  declare -p "${1}" &> /dev/null
+}
+
+function is-command {
+  command -v "${1}" &> /dev/null
+}
+
+function get-first-frame {
+  if ! is-command ffmpeg; then
+    log "FFMPEG not installed, Material You colors won't get extracted from video"
+    return 1
+  fi
+  log "Extracting first frame from video: ${1}"
+  ffmpeg -y \
+    -i "${1}" \
+    -frames:v 1 \
+    -update 1 \
+    -c:v png \
+    "${WINU_TMP_IMAGE}" &> /dev/null
+}
+
+function is-video {
+  case "${1##*.}" in
+    mp4 | webm | mkv | mov | avi)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+function is-image {
+  case "${1##*.}" in
+    png | jpg | jpeg | webp | gif)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+function fill-template {
+  log "Setting config ${1} -> ${2}"
+  WINU_CONFIG_TEMPLATE="${WINU_CONFIG_TEMPLATE/\{${1}\}/"${2}"}"
+}
+
+function load-color-pallete {
+  if is-command matugen && [[ -n "${1:-}" ]]; then
+    source <(
+      matugen image "${1}" \
+        --config "${WINU_MATUGEN_CONFIG}" \
+        --prefer saturation \
+        <<< "${WINU_MATUGEN_TEMPLATE}" 2> /dev/null
+    )
+    if ((WINU_COLOR_PALLETE[missing])); then
+      source <(
+        matugen color hex "${2}" \
+          --config "${WINU_MATUGEN_CONFIG}" \
+          --prefer saturation \
+          <<< "${WINU_MATUGEN_TEMPLATE}" 2> /dev/null
+      )
+    fi
+  fi
+
+  if ((WINU_COLOR_PALLETE[missing])); then
+    if [[ "${yaml[colors]:-}" == '__yaml_node'* ]] && is-declared "${name}"; then
+      local -n c="${yaml[colors]}"
+    else
+      local -A c=() # for err
+    fi
+
+    WINU_COLOR_PALLETE[background]="${c[background]:-'#11111b'}"
+    WINU_COLOR_PALLETE[onBackground]="${c[onBackground]:-'#deeeff'}"
+    WINU_COLOR_PALLETE[primary]="${c[primary]:-'#c2c1ff'}"
+    WINU_COLOR_PALLETE[onPrimary]="${c[onPrimary]:-'#2a2a60'}"
+    WINU_COLOR_PALLETE[primaryContainer]="${c[primaryContainer]:-'#414178'}"
+    WINU_COLOR_PALLETE[surface]="${c[surface]:-'#131318'}"
+    WINU_COLOR_PALLETE[onSurface]="${c[onSurface]:-'#e4e1e9'}"
+    WINU_COLOR_PALLETE[surfaceVariant]="${c[surfaceVariant]:-'#47464f'}"
+    WINU_COLOR_PALLETE[onSurfaceVariant]="${c[onSurfaceVariant]:-'#c8c5d0'}"
+    WINU_COLOR_PALLETE[outline]="${c[outline]:-'#918f9a'}"
+  fi
+  unset WINU_COLOR_PALLETE[missing]
+}
+
+# <filled:bool> <static:bool>
+function make-user-avatar {
+  local b=""
+  [[ "${2}" == 'true' ]] && b="_"
+
+  local col1="${b:+'#c8c5d0'}"
+  local col2="${b:+'#47464f'}"
+  local col3="${b:+'#383840'}"
+  if [[ "${1}" == 'true' ]]; then
+    magick -size 192x192 xc:none \
+      -fill "${col1:-${WINU_COLOR_PALLETE[outline]}}" -draw "circle 96,96 96,0" \
+      -fill "${col2:-${WINU_COLOR_PALLETE[primaryContainer]}}" -draw "circle 96,70 96,42" \
+      -draw "path 'M 44,158 A 52,52 0 0,1 148,158 Z'" \
+      "${WINU_THEME_ROOT}/assets/user-pic.png"
+  else
+    magick -size 192x192 xc:none \
+      -fill "${col3:-${WINU_COLOR_PALLETE[onSurface]}}" \
+      -draw "circle 96,65 96,35" \
+      -draw "path 'M 36,165 A 60,60 0 0,1 156,165 Z'" \
+      "${WINU_THEME_ROOT}/assets/user-pic.png"
+  fi
+}
+
+function make-blur-params {
+  local intensity="${1}"
+  local enabled="${2}"
+  local max_radius=32
+
+  local radius=25
+  local samples=45
+  if [[ "${intensity}" =~ ^[0-9]+$ ]]; then
+    radius=$(((intensity * max_radius) / 100))
+    samples=$(((radius * 2) + 1))
+  fi
+
+  fill-template "blur_radius" "${radius}"
+  fill-template "blur_samples" "${samples}"
+
+  [[ "${enabled}" == 'true' ]] \
+    && fill-template "use_blur" "true" \
+    || fill-template "use_blur" "false"
+}
+
+function is-valid-font {
+  mapfile -t sys_fonts < <(
+    fc-list \
+      | grep -ioE ": [^:]*${1:?search query required}[^:]*:" \
+      | sed -E 's/(^: |:)//g' \
+      | tr ',' '\n' \
+      | sort -u
+  ) || return 1
+
+  for f in "${sys_fonts[@]}"; do
+    [[ "${f}" == "${1}" ]] && return 0
+  done
+
+  # printf '%s\n' "${fonts[@]}"
+  return 1
+}
+
+function main {
+  declare -gi LOGGER_EFFECTIVE_LEVEL=4
+  ((UID != 0)) && die "Required to run as root"
+  ((${#} == 0)) && {
+    log "Usage: ${0} <config.yaml>"
+    die "No config file given"
+  }
+  [[ -n "${1}" && -f "${1}" ]] || die "Config file '${1}' not found"
+  declare -gr WINU_CONFIG_FILE="${1}"
+
+  log "Configuration from path: ${WINU_CONFIG_FILE}"
+  yq.sh yaml "${WINU_CONFIG_FILE}"
+  for map in material_you avatar blur carousel fonts; do
+    local name="${yaml["${map}"]:-}"
+    [[ "${name}" == '__yaml_node'* ]] && is-declared "${name}" \
+      || die "Config '${map}' is not a mapping: ${name}"
+  done
+
+  [[ "${yaml[backgrounds]:-}" == '__yaml_list'* ]] && is-declared "${yaml[backgrounds]}" \
+    || die "Config 'backgrounds' is not a list"
+
+  local use_video=false
+  [[ "${yaml[use_video]:-}" == 'true' ]] && use_video=true
+
+  local -n bgs="${yaml[backgrounds]}"
+  local _bgs=()
+  local _vid=()
+  local _img=()
+
+  log "Sorting through target background file paths..."
+  for bg in "${bgs[@]}"; do
+    [[ -f "${bg}" ]] || die "File ${bg} does not exist, or is inaccessible"
+    if is-video "${bg}"; then
+      _vid+=("${bg}")
+    elif is-image "${bg}"; then
+      _img+=("${bg}")
+    else
+      die "File ${bg} is not a valid background"
+    fi
+  done
+
+  for bg in "${_img[@]}" "${_vid[@]}"; do
+    _bgs+=("    \"${WINU_THEME_ROOT}/assets/${bg##*/}\",")
+  done
+
+  IFS=$'\n' __bgs="${_bgs[*]}"
+  fill-template 'bg_list' "${__bgs}"
+
+  local -n fonts="${yaml[fonts]}"
+  log "Validating setup configuration typography families..."
+  for font in "${!fonts[@]}"; do
+    local font_fam="${fonts["${font}"]}"
+    is-valid-font "${font_fam}" || die "Font family '${font_fam}' not found globally"
+    fill-template "font:${font}" "${font_fam}"
+  done
+
+  local -n mtu="${yaml[material_you]}"
+  if [[ "${mtu[enabled]:-}" == 'true' ]]; then
+    log "Material You palette calculation active."
+    local color_source_image=""
+
+    if ${use_video}; then
+      if [[ "${mtu[on_video]:-}" == 'true' ]] && ((${#_vid[@]} > 0)); then
+        get-first-frame "${_vid[0]}" && color_source_image="${WINU_TMP_IMAGE}"
+      fi
+    fi
+
+    if [[ -z "${color_source_image}" ]]; then
+      ((${#_img[@]} == 0)) && die "At least one background image is required for palette construction"
+      color_source_image="${_img[0]}"
+    fi
+  fi
+
+  load-color-pallete "${color_source_image}" \
+    "${mtu[fallback]:-'#aaffff'}" \
+    "${mtu[prefer]:-saturation}" \
+    "${mtu[mode]:-dark}"
+
+  rm -fr "${WINU_TMP_IMAGE}"
+
+  for col in "${!WINU_COLOR_PALLETE[@]}"; do
+    fill-template "color:${col}" "${WINU_COLOR_PALLETE["${col}"]}"
+  done
+
+  fill-template "use_video" "${use_video}"
+
+  [[ "${yaml[inactive_timeout]:-}" =~ ^[0-9]+$ ]] \
+    && fill-template "inactive_timeout" "${yaml[inactive_timeout]:-}" \
+    || fill-template "inactive_timeout" "10000"
+
+  local -n carr="${yaml[carousel]}"
+  [[ "${carr[enabled]}" == 'true' ]] \
+    && fill-template "carousel_enabled" "true" \
+    || fill-template "carousel_enabled" "false"
+
+  [[ "${carr[interval]:-}" =~ ^[0-9]+$ ]] \
+    && fill-template "carousel_interval" "${carr[interval]:-}" \
+    || fill-template "carousel_interval" "30000"
+
+  local -n blur="${yaml[blur]}"
+  make-blur-params "${blur[intensity]:-}" "${blur[enabled]:-}"
+
+  log "Purging existing assets directory..."
+  mkdir -p "${WINU_THEME_ROOT}/assets/"
+  rm -fr "${WINU_THEME_ROOT}"/assets/*
+  local -n avatar="${yaml[avatar]}"
+  if [[ -n "${avatar[custom]:-}" && "${avatar[custom]:-}" != 'null' ]]; then
+    [[ -f "${avatar[custom]}" ]] || die "Custom avatar target file reference not found: ${avatar[custom]}"
+    log "Copying configured custom avatar profile asset..."
+    cp "${avatar[custom]}" "${WINU_THEME_ROOT}/assets/user-pic.png"
+  else
+    is-command magick || die "Missing command magick (imagemagick)"
+    make-user-avatar "${avatar[filled]:-}" "${avatar[static]:-}"
+  fi
+
+  log "Writing theme configuration..."
+  cat <<< "${WINU_CONFIG_TEMPLATE}" > "${WINU_THEME_ROOT}/Config.qml"
+  cp "${bgs[@]}" "${WINU_THEME_ROOT}/assets/"
+  log "SDDM Theme configuration synchronization operations completed."
+}
+
+main "${@}"

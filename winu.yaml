@@ -1,0 +1,64 @@
+# Use video wallpapers if any
+use_video: false
+
+# Time before switching back to clock, in ms
+inactive_timeout: 10000
+
+backgrounds:
+  # Static image or video sources for wallpaper rotation
+  - "/home/user/.local/share/backgrounds/bg_01.jpg"
+  - "/home/user/.local/share/backgrounds/bg_02.webm"
+  - "/home/user/.local/share/backgrounds/bg_03.jpg"
+
+material_you:
+  # Enables dynamic theming from wallpaper colors
+  enabled: true
+  # Allow extracting colors from video frames too
+  on_video: true
+  # Fallback color if extraction from media fails
+  fallback: "#ff4fa3"
+  # Color generation strategy used by matugen (matugen --help)
+  prefer: saturation
+  # Base theme mode; dark or light (matugen --help)
+  mode: dark
+
+avatar:
+  # Custom avatar image path. Must be 192x192
+  custom: null
+  # Forces solid background behind avatar
+  filled: true
+  # Prevents avatar from changing with matugen
+  static: false
+
+blur:
+  # Enables background blur effect
+  enabled: true
+  # Blur strength applied to surfaces
+  intensity: 40
+
+carousel:
+  # Automatically rotates wallpapers
+  enabled: false
+  # Interval between wallpaper changes in ms
+  interval: 5000
+
+# Theme used as matugen fallback, or if it is disabled
+colors:
+  foreground: "#ffeaf4"
+  background: "#120812"
+  primary: "#ff4fa3"
+  onPrimary: "#2a0015"
+  primaryContainer: "#3a0b24"
+  surface: "#1a0f1c"
+  onSurface: "#f2d6e6"
+  surfaceVariant: "#24121f"
+  onSurfaceVariant: "#e7c7d6"
+  outline: "#6b3a55"
+
+fonts:
+  # Main UI font used across the system
+  primary: "Sora"
+  # Icon font required for UI symbols and indicators
+  segoe_ui: "Segoe Fluent Icons"
+  # Icon font required for spinner animation
+  meiryo_boot: "Meiryo Boot"
