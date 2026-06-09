@@ -1,0 +1,60 @@
+BASH_LOADABLES=("/usr/lib/bash/sleep" "/usr/lib64/bash/sleep" "/usr/local/lib/bash/sleep")
+BUILTIN_LOADED=0
+
+for path in "${BASH_LOADABLES[@]}"; do
+  if [[ -f "${path}" ]]; then
+    enable -f "${path}" sleep && BUILTIN_LOADED=1 && break
+  fi
+done
+
+((BUILTIN_LOADED)) || exit 1
+
+use_qdbus=0
+if ! command -v dbus-send &>/dev/null; then
+  command -v qdbus &>/dev/null || exit 1
+  use_qdbus=1
+fi
+
+readonly THIS_SCRIPT="${1}"
+readonly GREETER_COMMAND="${2}"
+
+function return-greeter {
+  if ((use_qdbus)); then
+    qdbus --system \
+      org.freedesktop.DisplayManager \
+      /org/freedesktop/DisplayManager/Seat0 \
+      org.freedesktop.DisplayManager.Seat.SwitchToGreeter
+  else
+    dbus-send --system --type=method_call \
+      --dest=org.freedesktop.DisplayManager \
+      /org/freedesktop/DisplayManager/Seat0 \
+      org.freedesktop.DisplayManager.Seat.SwitchToGreeter
+  fi
+}
+
+function is-enabled-sddm {
+  read -ra sessions < <(grep -oP '(?<=^SESSIONS=).*' /run/systemd/seats/seat0)
+  for id in "${sessions[@]}"; do
+    if grep -q 'ACTIVE=1' "/run/systemd/sessions/${id}"; then
+      grep -qz 'USER=sddm.*CLASS=greeter' "/run/systemd/sessions/${id}"
+      return
+    fi
+  done
+  return 1
+}
+
+while inotifywait -e modify -q /sys/class/tty/tty0/active &>/dev/null; do
+  read -r active_tty </sys/class/tty/tty0/active
+  [[ "${active_tty}" != 'tty1' ]] && continue
+
+  is-enabled-sddm && continue
+  return-greeter
+
+  while sleep 15; do
+    read -r active_tty </sys/class/tty/tty0/active
+    [[ "${active_tty}" == 'tty1' ]] && continue
+
+    pkill --signal SIGINT "${GREETER_COMMAND}" &>/dev/null
+    break
+  done
+done

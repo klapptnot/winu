@@ -5,7 +5,7 @@ Item {
 
   function updateTime() {
     var date = new Date();
-    timeText.text = Qt.formatTime(date, "hh:mm");
+    timeText.text = Qt.formatTime(date, "hh:mm AP").slice(0, -3);
     dateText.text = Qt.formatDate(date, "dddd, d MMMM");
   }
 

@@ -10,6 +10,14 @@ backgrounds:
   - "/home/user/.local/share/backgrounds/bg_02.webm"
   - "/home/user/.local/share/backgrounds/bg_03.jpg"
 
+# wayland compositor command for `winu-sddm-compositor` command
+# missing command or set to null skips this, but the map is required
+compositor:
+  command: "cage"
+  args:
+    - "-s"
+    - "-d"
+
 material_you:
   # Enables dynamic theming from wallpaper colors
   enabled: true
