@@ -11,6 +11,10 @@ Item {
   property int selectedSession: sessionModel.lastIndex
   property bool loginErrorVisible: false
 
+  onSelectedUserChanged: {
+    mainAvatar.source = `/var/lib/AccountsService/icons/${selectedUser}`
+  }
+
   function forceInputFocus() {
     passwordField.input.forceActiveFocus();
   }
@@ -120,7 +124,7 @@ Item {
         anchors.fill: parent
         fillMode: Image.PreserveAspectCrop
 
-        source: getUserProp(selectedUser, "icon")
+        source: `/var/lib/AccountsService/icons/${selectedUser}`
 
         onStatusChanged: {
           if (status === Image.Error && source != "../assets/user-pic.png") {
@@ -244,7 +248,7 @@ Item {
           source: Image {
             width: 48
             height: 48
-            source: model.icon
+            source: `/var/lib/AccountsService/icons/${model.name}`
             fillMode: Image.PreserveAspectCrop
 
             onStatusChanged: {
