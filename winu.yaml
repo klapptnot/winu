@@ -1,50 +1,31 @@
-# Time before switching back to clock, in ms
-inactive_timeout: 10000
+inactive_timeout: 10000     # Time before switching back to clock, in ms
 
-# required for any command from winu script
-# no command line arguments, more than command
-# and path to this config file
 installation:
-  # where theme is going to get installed
-  root: "/usr/share/sddm/themes/winu"
-  # cloned repo for sources
-  source: "/home/user/repos/winu"
-  # install deps for dynamic theming
-  optional_deps: true
+  root: "/usr/share/sddm/themes/winu"  # Where theme is going to get installed
+  source: "/home/user/repos/winu"      # Cloned repo for sources
+  optional_deps: true       # Install deps for dynamic theming
 
 background:
-  # Use video wallpapers if any (looping)
-  use_video: false
-  # Blur strength applied to surfaces (0 == off)
-  blur: 40
-  sources:
-    # Static image or video sources for wallpaper rotation
+  use_video: false          # Use video wallpapers if any (looping)
+  blur: 40                  # Blur strength applied to surfaces (0 == off)
+  sources:                  # Static image or video sources for wallpaper rotation
     - "/home/user/.local/share/backgrounds/bg_01.jpg"
     - "/home/user/.local/share/backgrounds/bg_02.webm"
     - "/home/user/.local/share/backgrounds/bg_03.jpg"
   carousel:
-    # Automatically rotates wallpapers
-    enabled: false
-    # Interval between wallpaper changes in ms
-    interval: 30000
+    enabled: false          # Automatically rotates wallpapers
+    interval: 30000         # Interval between wallpaper changes in ms
 
 colors:
   matugen:
-    # Enables dynamic theming from wallpaper colors
-    enabled: true
-    # Allow extracting colors from video frames too
-    on_video: true
-    # Fallback color if extraction from media fails
-    fallback: "#ff4fa3"
-    # options is what can be passed to matugen
+    enabled: true           # Enables dynamic theming from wallpaper colors
+    on_video: true          # Allow extracting colors from video frames too
+    fallback: "#ff4fa3"     # Fallback color if extraction from media fails
     options:
-      # Color generation strategy used by matugen (matugen --help)
-      prefer: saturation
-      # Base theme mode; dark or light (matugen --help)
-      mode: dark
+      prefer: saturation    # Color generation strategy used by matugen (matugen --help)
+      mode: dark            # Base theme mode; dark or light (matugen --help)
 
-  palette:
-    # Theme used as matugen fallback, or if it is disabled
+  palette:       # Theme used as matugen fallback, or if it is disabled
     background: "#120812"
     onBackground: "#ffeaf4"
     primary: "#ff4fa3"
@@ -57,25 +38,17 @@ colors:
     outline: "#6b3a55"
 
 avatar:
-  # Custom avatar image path. Must be 192x192
-  custom: null
-  # Forces solid background behind avatar
-  filled: true
-  # Prevents avatar from changing with matugen
-  static: false
+  custom: null   # Custom avatar image path. Must be 192x192
+  filled: true   # Forces solid background behind avatar
+  static: false  # Prevents avatar from changing with matugen
 
 fonts:
-  # Main UI font used across the system
-  primary: "Sora"
-  # Icon font required for UI symbols and indicators
-  segoe_ui: "Segoe Fluent Icons"
-  # Icon font required for spinner animation
-  meiryo_boot: "Meiryo Boot"
+  primary: "Sora"                      # Main UI font used across the system
+  segoe_ui: "Segoe Fluent Icons"       # Icon font required for UI symbols and indicators
+  meiryo_boot: "Meiryo Boot"           # Icon font required for spinner animation
 
-# Wrapper for compositor, to enable wake up
-# greeter after a manual switch to VT1 (like gdm)
-# empty or null disables this
-compositor:
+compositor:    # Wrapper for compositor to enable wake up greeter after manual switch to VT1
+  timeout: 15  # Timout in seconds, to stop compositor after switching out of VT1
   command: "cage"
   args:
     - "-s"

@@ -1,4 +1,4 @@
-BASH_LOADABLES=("/usr/lib/bash/sleep" "/usr/lib64/bash/sleep" "/usr/local/lib/bash/sleep")
+readonly BASH_LOADABLES=("/usr/lib/bash/sleep" "/usr/lib64/bash/sleep" "/usr/local/lib/bash/sleep")
 BUILTIN_LOADED=0
 
 for path in "${BASH_LOADABLES[@]}"; do
@@ -10,8 +10,8 @@ done
 ((BUILTIN_LOADED)) || exit 1
 
 use_qdbus=0
-if ! command -v dbus-send &>/dev/null; then
-  command -v qdbus &>/dev/null || exit 1
+if ! command -v dbus-send &> /dev/null; then
+  command -v qdbus &> /dev/null || exit 1
   use_qdbus=1
 fi
 
@@ -43,18 +43,18 @@ function is-enabled-sddm {
   return 1
 }
 
-while inotifywait -e modify -q /sys/class/tty/tty0/active &>/dev/null; do
-  read -r active_tty </sys/class/tty/tty0/active
+while inotifywait -e modify -q /sys/class/tty/tty0/active &> /dev/null; do
+  read -r active_tty < /sys/class/tty/tty0/active
   [[ "${active_tty}" != 'tty1' ]] && continue
 
   is-enabled-sddm && continue
   return-greeter
 
-  while sleep 15; do
-    read -r active_tty </sys/class/tty/tty0/active
+  while sleep "${STOP_COMPOSITOR_TIMEOUT}"; do
+    read -r active_tty < /sys/class/tty/tty0/active
     [[ "${active_tty}" == 'tty1' ]] && continue
 
-    pkill --signal SIGINT "${GREETER_COMMAND}" &>/dev/null
+    pkill --signal SIGINT "${GREETER_COMMAND}" &> /dev/null
     break
   done
 done

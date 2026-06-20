@@ -7,7 +7,7 @@ Item {
 
   property var blurSource
   property var inactivityTimer
-  property string selectedUser: userModel.lastUser || userModel.data(userModel.index(0, 0), Qt.UserRole + 1)
+  property string selectedUser: userModel.data(userModel.index(0, 0), Qt.UserRole + 1)
   property int selectedSession: sessionModel.lastIndex
   property bool loginErrorVisible: false
 
