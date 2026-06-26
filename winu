@@ -1,8 +1,11 @@
 #!/usr/bin/bash
 
+shopt -s extglob
+
 readonly KITSH_YAML_SH='https://raw.githubusercontent.com/klapptnot/kitsh/main/lib/yaml.sh'
-readonly WINU_SDDM_COMP_EXEC="/usr/bin/winu-sddm-compositor"
 readonly WINU_TMP_IMAGE="${WINU_THEME_ROOT}/tmp.png"
+readonly WINU_TMP_COMP_EXEC="${WINU_THEME_ROOT}/winu-sddm-compositor"
+readonly WINU_SDDM_COMP_EXEC="/usr/bin/winu-sddm-compositor"
 readonly WINU_MATUGEN_TEMPLATE='
 WINU_COLOR_PALLETE[missing]=0
 WINU_COLOR_PALLETE[background]="{{colors.background.default.hex}}"
@@ -64,13 +67,45 @@ declare -grA MATUGEN_DEFAULT_OPTS=(
 )
 declare -Ag WINU_COLOR_PALLETE=(['missing']=1)
 
+if [[ -t 1 ]]; then
+  readonly CLR_RED='\x1b[31m'
+  readonly CLR_YEL='\x1b[33m'
+  readonly CLR_GRN='\x1b[32m'
+  readonly CLR_RST='\x1b[0m'
+else
+  readonly CLR_RED='ERROR: '
+  readonly CLR_YEL='WARNING: '
+  readonly CLR_GRN=''
+  readonly CLR_RST=''
+fi
+
 function die {
-  printf '\x1b[31m%s\x1b[0m\n' "${1}" &> /dev/stderr
+  printf "${CLR_RED}%s${CLR_RST}\n" "${1}" >&2
   exec false
 }
 
+function warn {
+  printf "${CLR_YEL}%s${CLR_RST}\n" "${1}" >&2
+}
+
 function log {
-  printf '\x1b[32m%s\x1b[0m\n' "${1}"
+  printf "${CLR_GRN}%s${CLR_RST}\n" "${1}"
+}
+
+declare -ig __not_like_inochi_sos_whatsoever=0
+function inochi-sos {
+  __not_like_inochi_sos_whatsoever=1
+  "${@}"
+}
+
+function become-suicidal-ahh {
+  [[ "${FUNCNAME[*]}" == *' yaml::'* ]] && return
+  [[ "${FUNCNAME[*]}" == *' inochi-sos '* ]] && return
+  if ((__not_like_inochi_sos_whatsoever)); then
+    __not_like_inochi_sos_whatsoever=0
+    return
+  fi
+  die "sowwy i ate your ram :b ... failed command in \`${FUNCNAME[2]}\` at ${BASH_SOURCE[1]}:${BASH_LINENO}"
 }
 
 function is-command {
@@ -92,12 +127,25 @@ fi
 source ./yaml.sh || die 'Unable to load yaml.sh'
 
 function to-natural {
-  [[ "${1}" == *([0-9]).*([0-9]) ]] && die 'Use only natural numbers, zer0 or greater'
-  [[ "${1}" == +([0-9]) ]] && printf "${1}" || printf "${2}"
+  if [[ "${1}" == +([0-9]) ]]; then
+    printf '%s\n' "${1}"
+  else
+    warn "Use only natural numbers. falling back to ${2}"
+    printf '%s\n' "${2}"
+  fi
 }
 
 function to-boolean {
-  [[ "${1}" == 'true' ]] && printf 'true' || printf 'false'
+  local def="${2:-false}"
+
+  case "${1,,}" in
+    true|yes|y|1)  printf 'true\n' ;;
+    false|no|n|0)  printf 'false\n' ;;
+    *)
+      warn "Invalid boolean '${1}', falling back to ${def}"
+      printf '%s\n' "${def}"
+      ;;
+  esac
 }
 
 function is-video {
@@ -114,14 +162,9 @@ function is-image {
   esac
 }
 
-function fill::template {
-  log "${3:-Updating config} ${1} -> ${2}"
-  WINU_CONFIG_TEMPLATE="${WINU_CONFIG_TEMPLATE/\{${1}\}/"${2}"}"
-}
-
 function get-first-frame {
   if ! is-command ffmpeg; then
-    log "FFMPEG not installed, Material You colors won't get extracted from video"
+    warn "FFMPEG not installed, Material You colors won't get extracted from video"
     return 1
   fi
   log "Extracting first frame from video: ${1}"
@@ -158,6 +201,11 @@ function is-valid-font {
   return 1
 }
 
+function fill-template {
+  log "${3:-Updating config} ${1} -> ${2}"
+  WINU_CONFIG_TEMPLATE="${WINU_CONFIG_TEMPLATE/\{${1}\}/"${2}"}"
+}
+
 function dispatch::compositor {
   yaml::ensure map .compositor "${1}"
   local -n ctx="${1}"
@@ -171,8 +219,8 @@ function dispatch::compositor {
     is-command "${command}" || die "Compositor command '${command}' is not a command"
     local compositor=("${command}")
 
-    yaml::get_type "${comp_item[args]}"
-    if ((${?} == 1)); then
+    inochi-sos yaml::is_value "${comp_item[args]}"
+    if ((${?} == 2)); then
       local -n _ca="${comp_item[args]}"
       compositor+=("${_ca[@]}")
     fi
@@ -181,8 +229,7 @@ function dispatch::compositor {
     readonly compositor
     WINU_COMPOSITOR_HEAD="${WINU_COMPOSITOR_HEAD/\{compositor_array\}/"${compositor[@]@A}"}"
     WINU_COMPOSITOR_HEAD="${WINU_COMPOSITOR_HEAD/\{compositor_timeout\}/"${compositor_timeout}"}"
-    cat - "${WINU_THEME_ROOT}/sddm-compositor" <<< "${WINU_COMPOSITOR_HEAD}" > "${WINU_SDDM_COMP_EXEC}"
-    chmod 755 "${WINU_SDDM_COMP_EXEC}"
+    cat - "${WINU_THEME_ROOT}/sddm-compositor" <<< "${WINU_COMPOSITOR_HEAD}" > "${WINU_TMP_COMP_EXEC}"
   fi
 }
 
@@ -251,7 +298,8 @@ function dispatch::colors {
       color_source_image="${first_img}"
     fi
 
-    if yaml::check_type "${mtu[options]}" map; then
+    inochi-sos yaml::is_value "${mtu[options]}"
+    if ((${?} == yaml_type_num[map])); then
       local -n mtu_opts="${mtu[options]}"
     else
       local -n mtu_opts=MATUGEN_DEFAULT_OPTS
@@ -264,7 +312,7 @@ function dispatch::colors {
 
     rm -fr "${WINU_TMP_IMAGE}"
   else
-    ${mtu_enabled} && log "Material You palette skipped (missing matugen)"
+    ${mtu_enabled} && warn "Material You palette skipped (missing matugen)"
   fi
 
   if ((WINU_COLOR_PALLETE[missing])); then
@@ -285,7 +333,7 @@ function dispatch::colors {
   unset WINU_COLOR_PALLETE[missing]
 
   for col in "${!WINU_COLOR_PALLETE[@]}"; do
-    fill::template "color:${col}" "${WINU_COLOR_PALLETE["${col}"]}"
+    fill-template "color:${col}" "${WINU_COLOR_PALLETE["${col}"]}"
   done
 }
 
@@ -295,10 +343,10 @@ function dispatch::carousel {
   local -n carr="${ctx[carousel]}"
 
   read -r carr_enabled < <(to-boolean "${carr[enabled]}")
-  fill::template "carousel_enabled" "${carr_enabled}"
+  fill-template "carousel_enabled" "${carr_enabled}"
 
   read -r carr_interval < <(to-natural "${carr[interval]}" 30000)
-  fill::template "carousel_interval" "${carr_interval}"
+  fill-template "carousel_interval" "${carr_interval}"
 }
 
 function dispatch::background {
@@ -311,7 +359,7 @@ function dispatch::background {
   local -n sources="${background[sources]}"
 
   read -r use_video_n < <(to-boolean "${background[use_video]}")
-  fill::template "use_video" "${use_video_n}"
+  fill-template "use_video" "${use_video_n}"
 
   log "Sorting through target background file paths..."
   for bg in "${sources[@]}"; do
@@ -336,6 +384,7 @@ function dispatch::background {
   done
 
   IFS=$'\n' __bgs="${_bgs[*]}"
+  IFS=$' \t\n'
   WINU_CONFIG_TEMPLATE="${WINU_CONFIG_TEMPLATE/\{bg_list\}/"${__bgs}"}"
 
   read -r intensity < <(to-natural "${background[blur]}" 0)
@@ -347,9 +396,9 @@ function dispatch::background {
   local samples=$(((radius * 2) + 1))
 
   # required to directly disable blur element
-  fill::template "use_blur" "${blur_enabled}"
-  fill::template "blur_radius" "${radius}"
-  fill::template "blur_samples" "${samples}"
+  fill-template "use_blur" "${blur_enabled}"
+  fill-template "blur_radius" "${radius}"
+  fill-template "blur_samples" "${samples}"
 
   dispatch::carousel "${ctx[background]}"
 }
@@ -363,14 +412,14 @@ function dispatch::fonts {
   for font in "${!fonts[@]}"; do
     local font_fam="${fonts["${font}"]}"
     is-valid-font "${font_fam}" || die "Font family '${font_fam}' not found globally"
-    fill::template "font:${font}" "${font_fam}" "Adding font"
+    fill-template "font:${font}" "${font_fam}" "Adding font"
   done
 }
 
 function winu::sync_config {
   [[ -d "${WINU_THEME_ROOT:?}" ]] || die "Missing theme root: run setup first!"
   read -r inactive_timeout < <(to-natural "${__ynml[inactive_timeout]}" 10000)
-  fill::template "inactive_timeout" "${inactive_timeout}"
+  fill-template "inactive_timeout" "${inactive_timeout}"
 
   local image_bgs=()
   local video_bgs=()
@@ -381,14 +430,22 @@ function winu::sync_config {
   dispatch::compositor __ynml
   dispatch::avatar __ynml
 
+  log "Writing theme configuration..."
+  cat <<< "${WINU_CONFIG_TEMPLATE}" > "${WINU_THEME_ROOT}/Config.qml.tmp" || die "huh!? wdym failed cat? :cat: (write conf err)"
+  mv "${WINU_THEME_ROOT}/Config.qml.tmp" "${WINU_THEME_ROOT}/Config.qml"
+
+  if [[ -f "${WINU_TMP_COMP_EXEC}" ]]; then
+    mv "${WINU_TMP_COMP_EXEC}" "${WINU_SDDM_COMP_EXEC}"
+    chmod 755 "${WINU_SDDM_COMP_EXEC}"
+  fi
+
   log "Purging existing assets directory..."
   rm -fr "${WINU_THEME_ROOT}/assets"
-
-  log "Writing theme configuration..."
   mkdir -p "${WINU_THEME_ROOT}/assets"
+
   mv "${WINU_TMP_IMAGE}" "${WINU_THEME_ROOT}/assets/user-pic.png"
-  cp "${image_bgs[@]}" "${video_bgs[@]}" "${WINU_THEME_ROOT}/assets/"
-  cat <<< "${WINU_CONFIG_TEMPLATE}" > "${WINU_THEME_ROOT}/Config.qml"
+  cp "${image_bgs[@]}" "${video_bgs[@]}" "${WINU_THEME_ROOT}/assets/" || die "huh!? how's this pc so bipolar? :sob: (cp failed)"
+
   log "SDDM Theme configuration synchronization operations completed."
 }
 
@@ -428,32 +485,75 @@ function winu::setup {
 }
 
 function winu::test {
-  [[ -d "${WINU_THEME_ROOT:?}" ]] || die "Missing theme root: run setup first!"
-  [[ -f "${WINU_THEME_ROOT}/Config.qml" ]] || die "Missing theme config: run sync first!"
-  is-command sddm-greeter || die "sddm not available: run setup first!"
+  [[ -d "${WINU_THEME_ROOT:?}" ]] || die 'Missing theme root: run setup first!'
+  [[ -f "${WINU_THEME_ROOT}/Config.qml" ]] || die 'Missing theme config: run sync first!'
+  is-command sddm-greeter || die 'sddm not available: run setup first!'
   sddm-greeter --test-mode --theme "${WINU_THEME_ROOT}"
 }
 
-function main {
-  ((${#} < 2)) && {
-    log "Usage: ${0} setup|sync|test <config.yaml>"
-    exec false
-  }
+function winu::help {
+  local b=""
+  local c=""
+  local v=""
+  local r=""
 
+  if [[ -t 1 ]]; then
+    b="\x1b[1;34m"
+    c="\x1b[38;5;14m"
+    v="\x1b[38;5;15m"
+    r="\x1b[0m"
+  fi
+
+  local help_lines=(
+    "${b}winu${r}: Windows 11 inspired SDDM theme with Material You colors"
+    ''
+    "${b}Usage${r}:"
+    "  ${c}winu${r} COMMAND [config.yaml]"
+    ''
+    "${b}Commands${r}:"
+    "  ${c}setup${r}   Install dependencies and prepare theme environment"
+    "  ${c}sync${r}    Synchronize theme assets and configuration files"
+    "  ${c}test${r}    Launch SDDM greeter in test mode"
+    "  ${c}help${r}    Show this help message"
+    ''
+    "${b}Notes${r}:"
+    "  - ${c}setup${r} and ${c}sync${r} require root privileges."
+    "  - ${c}test${r} must be run as your standard user."
+    '  - If [config.yaml] is omitted, the default path is ~/.config/winu.yaml'
+    '    and is only available when the original user can be determined (e.g. via sudo)'
+    ''
+    "${b}Examples${r}:"
+    "  sudo ${c}winu${r} setup"
+    "  sudo ${c}winu${r} sync /etc/winu.yaml"
+    "  ${c}winu${r} test"
+  )
+
+  printf '%b\n' "${help_lines[@]}"
+  exec true
+}
+
+function main {
+  ((${#} < 1)) && die "Usage: ${0} <command> [config.yaml]"
+
+  local conf_path_mb=''
   case "${1}" in
     sync | setup)
-      ((UID != 0)) && die "Required to run as root for sync or setup"
+      ((UID != 0)) && die 'Required to run as root for sync or setup'
+      conf_path_mb="${SUDO_USER:+/home/${SUDO_USER}/.config/winu.yaml}"
       ;;
     test)
-      ((UID == 0)) && die "Command 'test' must be run as a regular user, not root!"
+      ((UID == 0)) && die 'Command "test" must be run as a regular user, not root!'
+      conf_path_mb="${HOME:?:wilted_flower::wilted_flower::wilted_flower:}/.config/winu.yaml"
       ;;
+    help) winu::help ;;
     *)
       die "Unknown command: ${1}"
       ;;
   esac
 
-  [[ -n "${2}" && -f "${2}" ]] || die "Config file '${2}' not found"
-  declare -gr WINU_CONFIG_FILE="${2}"
+  declare -gr WINU_CONFIG_FILE="${2:-${conf_path_mb}}"
+  [[ -n "${WINU_CONFIG_FILE}" ]] || die "Config file not provided"
+  [[ -f "${WINU_CONFIG_FILE}" ]] || die "Config file '${WINU_CONFIG_FILE}' not found"
 
   log "Configuration from path: ${WINU_CONFIG_FILE}"
   yaml::load __ynml "${WINU_CONFIG_FILE}"
@@ -470,4 +570,6 @@ function main {
   esac
 }
 
+trap 'become-suicidal-ahh' ERR
+set -E
 main "${@}"
