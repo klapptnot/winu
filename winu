@@ -66,6 +66,54 @@ declare -grA MATUGEN_DEFAULT_OPTS=(
   ['prefer']="saturation"
 )
 declare -Ag WINU_COLOR_PALLETE=(['missing']=1)
+declare -gra messages=(
+  "sowwy i ate your ram :b"
+  "i am become death, destroyer of ram"
+  "got your code! COPIUM"
+  "where's my white monster?"
+  "Compiling Chromium... 冗談だよ～もう諦めたよ"
+  "404: hope not found"
+  "skill issue (real)"
+  "みんなみくみくにしてあげる"
+  "have you tried turning it off and on again?"
+  "my energy drink—! :weary::weary::weary:" # don't quote me, but use fctix for U+2014
+  "june happened here"
+  "ṷw̫ṷ~ (UwU)… uwu" # so you wanted `...`?? huh!?
+  "your daily word quota reached its limit!"
+  "n-no thoughts, head empty"
+  "white monster expired in june"
+  "bfs missing: no air left"
+  "just gonna stare at the wall for a bit"
+  "grass.exe is not recognized as a command"
+  "your yaml is valid but"
+  "別に、あんたのことなんか欲しかったわけじゃないんだからね…バカ！💢"
+  "💢💢💢"
+  "*bashful*"
+  "you're still using legacy code? cringe."
+  "p-p-please fix your config, senpai! >w<"
+  "i-it's not like i want this to work for you, b-baka! 💢"
+  "omg your config is a literal mess, fix it? ˶ᵔᵕᵔ˶"
+  "i-i'm not saying your code is bad, but… maybe delete it? :pleading_face:"
+)
+declare -gri messages_len="${#messages[@]}"
+
+declare -ig __not_like_inochi_sos_whatsoever=0
+function inochi-sos {
+  __not_like_inochi_sos_whatsoever=1
+  "${@}"
+}
+
+function become-suicidal-ahh {
+  for fn in "${FUNCNAME[@]}"; do
+    [[ "${fn}" == 'yaml::'* || "${fn}" == 'inochi-sos' ]] && return
+  done
+  if ((__not_like_inochi_sos_whatsoever)); then
+    __not_like_inochi_sos_whatsoever=0
+    return
+  fi
+  local msg=$((SRANDOM % messages_len))
+  die "${messages[msg]} ... non-zero return in ${FUNCNAME[2]:-main}, at ${BASH_SOURCE[1]}:${BASH_LINENO}"
+}
 
 if [[ -t 1 ]]; then
   readonly CLR_RED='\x1b[31m'
@@ -92,22 +140,6 @@ function log {
   printf "${CLR_GRN}%s${CLR_RST}\n" "${1}"
 }
 
-declare -ig __not_like_inochi_sos_whatsoever=0
-function inochi-sos {
-  __not_like_inochi_sos_whatsoever=1
-  "${@}"
-}
-
-function become-suicidal-ahh {
-  [[ "${FUNCNAME[*]}" == *' yaml::'* ]] && return
-  [[ "${FUNCNAME[*]}" == *' inochi-sos '* ]] && return
-  if ((__not_like_inochi_sos_whatsoever)); then
-    __not_like_inochi_sos_whatsoever=0
-    return
-  fi
-  die "sowwy i ate your ram :b ... failed command in \`${FUNCNAME[2]}\` at ${BASH_SOURCE[1]}:${BASH_LINENO}"
-}
-
 function is-command {
   command -v "${1}" &> /dev/null
 }
@@ -127,23 +159,25 @@ fi
 source ./yaml.sh || die 'Unable to load yaml.sh'
 
 function to-natural {
-  if [[ "${1}" == +([0-9]) ]]; then
-    printf '%s\n' "${1}"
+  local -n __out_var="${1}"
+  if [[ "${2}" == +([0-9]) ]]; then
+    __out_var="${2}"
   else
-    warn "Use only natural numbers. falling back to ${2}"
-    printf '%s\n' "${2}"
+    warn "Expected a natural number, falling back to ${3:-0}"
+    __out_var="${3:-0}"
   fi
 }
 
 function to-boolean {
-  local def="${2:-false}"
+  local -n __out_var="${1}"
+  local def="${3:-false}"
 
-  case "${1,,}" in
-    true|yes|y|1)  printf 'true\n' ;;
-    false|no|n|0)  printf 'false\n' ;;
+  case "${2,,}" in
+    true | yes | y | 1) __out_var=true ;;
+    false | no | n | 0) __out_var=false ;;
     *)
       warn "Invalid boolean '${1}', falling back to ${def}"
-      printf '%s\n' "${def}"
+      __out_var="${def}"
       ;;
   esac
 }
@@ -212,7 +246,8 @@ function dispatch::compositor {
   local -n comp_item="${ctx[compositor]}"
   local command="${comp_item[command]}"
 
-  read -r compositor_timeout < <(to-natural "${comp_item[timeout]}" 15)
+  local compositor_timeout
+  to-natural compositor_timeout "${comp_item[timeout]}" 15
 
   if [[ "${command:-null}" != 'null' ]]; then
     log "Setting up compositor command..."
@@ -225,7 +260,6 @@ function dispatch::compositor {
       compositor+=("${_ca[@]}")
     fi
 
-    log "Writing updated winu-sddm-compositor..."
     readonly compositor
     WINU_COMPOSITOR_HEAD="${WINU_COMPOSITOR_HEAD/\{compositor_array\}/"${compositor[@]@A}"}"
     WINU_COMPOSITOR_HEAD="${WINU_COMPOSITOR_HEAD/\{compositor_timeout\}/"${compositor_timeout}"}"
@@ -249,8 +283,9 @@ function dispatch::avatar {
   fi
 
   is-command magick || die "Missing command magick (imagemagick)"
-  read -r fill_avatar_bg < <(to-boolean "${avatar[filled]}")
-  read -r static_colors < <(to-boolean "${avatar[static]}")
+  local fill_avatar_bg static_colors
+  to-boolean fill_avatar_bg "${avatar[filled]}"
+  to-boolean static_colors "${avatar[static]}"
 
   [[ "${static_colors}" == 'true' ]] || static_colors=""
 
@@ -280,11 +315,12 @@ function dispatch::colors {
   local -n colors="${ctx[colors]}"
   local -n mtu="${colors[matugen]}"
 
-  read -r mtu_enabled < <(to-boolean "${mtu[enabled]}")
+  local mtu_enabled mtu_on_video
+  to-boolean mtu_enabled "${mtu[enabled]}"
 
   if ${mtu_enabled} && is-command matugen; then
-    log "Material You palette calculation active"
-    read -r mtu_on_video < <(to-boolean "${mtu[on_video]}")
+    log "Material You palette active..."
+    to-boolean mtu_on_video "${mtu[on_video]}"
     local color_source_image=""
 
     if ${use_video}; then
@@ -318,6 +354,7 @@ function dispatch::colors {
   if ((WINU_COLOR_PALLETE[missing])); then
     yaml::ensure map .colors.palette "${1}"
     local -n c="${colors[palette]}"
+    log 'Using static color palette...'
 
     WINU_COLOR_PALLETE[background]="${c[background]:-#11111b}"
     WINU_COLOR_PALLETE[onBackground]="${c[onBackground]:-#deeeff}"
@@ -342,10 +379,11 @@ function dispatch::carousel {
   local -n ctx="${1}"
   local -n carr="${ctx[carousel]}"
 
-  read -r carr_enabled < <(to-boolean "${carr[enabled]}")
+  local carr_enabled carr_interval
+  to-boolean carr_enabled "${carr[enabled]}"
   fill-template "carousel_enabled" "${carr_enabled}"
 
-  read -r carr_interval < <(to-natural "${carr[interval]}" 30000)
+  to-natural carr_interval "${carr[interval]}" 30000
   fill-template "carousel_interval" "${carr_interval}"
 }
 
@@ -358,10 +396,7 @@ function dispatch::background {
   local -n background="${ctx[background]}"
   local -n sources="${background[sources]}"
 
-  read -r use_video_n < <(to-boolean "${background[use_video]}")
-  fill-template "use_video" "${use_video_n}"
-
-  log "Sorting through target background file paths..."
+  log "Checking background file paths..."
   for bg in "${sources[@]}"; do
     [[ -f "${bg}" ]] || die "File ${bg} does not exist, or is inaccessible"
     if is-video "${bg}"; then
@@ -369,7 +404,7 @@ function dispatch::background {
     elif is-image "${bg}"; then
       images_n+=("${bg}")
     else
-      die "File ${bg} is not a valid background"
+      die "File ${bg} **may** not a valid background"
     fi
   done
 
@@ -387,7 +422,12 @@ function dispatch::background {
   IFS=$' \t\n'
   WINU_CONFIG_TEMPLATE="${WINU_CONFIG_TEMPLATE/\{bg_list\}/"${__bgs}"}"
 
-  read -r intensity < <(to-natural "${background[blur]}" 0)
+  log 'Background options...'
+  to-boolean use_video_n "${background[use_video]}"
+  fill-template "use_video" "${use_video_n}"
+
+  local intensity
+  to-natural intensity "${background[blur]}" 0
   ((intensity > 100)) && die "Background intensity blur cannot be greater than 100"
   local blur_enabled=true
   ((intensity == 0)) && blur_enabled=false
@@ -408,7 +448,7 @@ function dispatch::fonts {
   local -n ctx="${1}"
   local -n fonts="${ctx[fonts]}"
 
-  log "Validating setup configuration typography families..."
+  log "Validating typography families..."
   for font in "${!fonts[@]}"; do
     local font_fam="${fonts["${font}"]}"
     is-valid-font "${font_fam}" || die "Font family '${font_fam}' not found globally"
@@ -418,7 +458,8 @@ function dispatch::fonts {
 
 function winu::sync_config {
   [[ -d "${WINU_THEME_ROOT:?}" ]] || die "Missing theme root: run setup first!"
-  read -r inactive_timeout < <(to-natural "${__ynml[inactive_timeout]}" 10000)
+  local inactive_timeout
+  to-natural inactive_timeout "${__ynml[inactive_timeout]}" 10000
   fill-template "inactive_timeout" "${inactive_timeout}"
 
   local image_bgs=()
@@ -435,6 +476,7 @@ function winu::sync_config {
   mv "${WINU_THEME_ROOT}/Config.qml.tmp" "${WINU_THEME_ROOT}/Config.qml"
 
   if [[ -f "${WINU_TMP_COMP_EXEC}" ]]; then
+    log "Writing updated winu-sddm-compositor..."
     mv "${WINU_TMP_COMP_EXEC}" "${WINU_SDDM_COMP_EXEC}"
     chmod 755 "${WINU_SDDM_COMP_EXEC}"
   fi
@@ -443,10 +485,11 @@ function winu::sync_config {
   rm -fr "${WINU_THEME_ROOT}/assets"
   mkdir -p "${WINU_THEME_ROOT}/assets"
 
+  log "Moving assets to new folder..."
   mv "${WINU_TMP_IMAGE}" "${WINU_THEME_ROOT}/assets/user-pic.png"
   cp "${image_bgs[@]}" "${video_bgs[@]}" "${WINU_THEME_ROOT}/assets/" || die "huh!? how's this pc so bipolar? :sob: (cp failed)"
 
-  log "SDDM Theme configuration synchronization operations completed."
+  log "SDDM Theme config synchronization completed."
 }
 
 function winu::setup {
@@ -458,7 +501,9 @@ function winu::setup {
     qt5-graphicaleffects qt5-multimedia qt5-wayland
     inotify-tools procps-ng util-linux dbus sddm
   )
-  read -r optional_pkg_too < <(to-boolean "${installation[optional_deps]}")
+
+  local optional_pkg_too
+  to-boolean optional_pkg_too "${installation[optional_deps]}"
   ${optional_pkg_too} && pkg_to_install+=(ffmpeg imagemagick matugen)
 
   log "Installing selected dependencies..."
