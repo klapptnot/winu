@@ -286,7 +286,7 @@ Item {
       menuModel: sessionModel
       menuDelegate: ColumnMenuItem {
         label: name
-        desc: selectedSession === index ? "Currently active" : "Switch environment " + name
+        desc: selectedSession === index ? "Currently active" : "Switch DE to " + name
         icon: selectedSession === index ? "\ue73a" : "\ue739"
         callback: function() { selectedSession = index; }
       }

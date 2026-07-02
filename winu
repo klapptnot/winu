@@ -104,6 +104,7 @@ function inochi-sos {
 }
 
 function become-suicidal-ahh {
+  local __status="${?}"
   for fn in "${FUNCNAME[@]}"; do
     [[ "${fn}" == 'yaml::'* || "${fn}" == 'inochi-sos' ]] && return
   done
@@ -112,7 +113,7 @@ function become-suicidal-ahh {
     return
   fi
   local msg=$((SRANDOM % messages_len))
-  die "${messages[msg]} ... non-zero return in ${FUNCNAME[2]:-main}, at ${BASH_SOURCE[1]}:${BASH_LINENO}"
+  die "${messages[msg]} ... [${__status}] non-zero return in ${FUNCNAME[2]:-main}, at ${BASH_SOURCE[1]}:${BASH_LINENO}"
 }
 
 if [[ -t 1 ]]; then
@@ -128,16 +129,16 @@ else
 fi
 
 function die {
-  printf "${CLR_RED}%s${CLR_RST}\n" "${1}" >&2
+  printf "${CLR_RED}%s${CLR_RST}\n" "${@}" >&2
   exec false
 }
 
 function warn {
-  printf "${CLR_YEL}%s${CLR_RST}\n" "${1}" >&2
+  printf "${CLR_YEL}%s${CLR_RST}\n" "${@}" >&2
 }
 
 function log {
-  printf "${CLR_GRN}%s${CLR_RST}\n" "${1}"
+  printf "${CLR_GRN}%s${CLR_RST}\n" "${@}"
 }
 
 function is-command {
@@ -219,6 +220,11 @@ function matugen-wrapper {
 }
 
 function is-valid-font {
+  is-command fc-list || {
+    die 'Missing command "fc-list" (from fontconfig) required to validate fonts. Fixes:' \
+      '  - Install "fontconfig" on your system.' \
+      '  - Set `.fonts.trust_blindly` to `true` to skip validation.'
+  }
   mapfile -t sys_fonts < <(
     fc-list \
       | grep -ioE ": [^:]*${1:?search query required}[^:]*:" \
@@ -241,18 +247,28 @@ function fill-template {
 }
 
 function dispatch::compositor {
-  yaml::ensure map .compositor "${1}"
+  ${wayland_enabled} || {
+    log "Wayland support disabled: compositor script skipped"
+    return
+  }
   local -n ctx="${1}"
+
+  inochi-sos yaml::is_value "${ctx[compositor]}"
+  if ((${?} != yaml_type_num[map])); then
+    log "Compositor script skipped due to missing .compositor map"
+    return
+  fi
+
   local -n comp_item="${ctx[compositor]}"
   local command="${comp_item[command]}"
-
-  local compositor_timeout
-  to-natural compositor_timeout "${comp_item[timeout]}" 15
 
   if [[ "${command:-null}" != 'null' ]]; then
     log "Setting up compositor command..."
     is-command "${command}" || die "Compositor command '${command}' is not a command"
     local compositor=("${command}")
+
+    local compositor_timeout
+    to-natural compositor_timeout "${comp_item[timeout]}" 15
 
     inochi-sos yaml::is_value "${comp_item[args]}"
     if ((${?} == 2)); then
@@ -268,9 +284,16 @@ function dispatch::compositor {
 }
 
 function dispatch::avatar {
-  yaml::ensure map .avatar "${1}"
   local -n ctx="${1}"
-  local -n avatar="${ctx[avatar]}"
+
+  inochi-sos yaml::is_value "${ctx[avatar]}"
+  if ((${?} == yaml_type_num[map])); then
+    local -n avatar="${ctx[avatar]}"
+  else
+    warn 'Using fallback map for .avatar'
+    local -A avatar=(['filled']=true ['static']=true)
+  fi
+
   local avatar_custom="${avatar[custom]}"
 
   if [[ -n "${avatar_custom}" && "${avatar_custom}" != 'null' ]]; then
@@ -307,13 +330,26 @@ function dispatch::avatar {
 }
 
 function dispatch::colors {
-  yaml::ensure map .colors.matugen "${1}"
   local -n ctx="${1}"
+
   local use_video="${2}"
   local first_img="${3}"
   local first_vid="${4}"
-  local -n colors="${ctx[colors]}"
-  local -n mtu="${colors[matugen]}"
+
+  inochi-sos yaml::is_value "${ctx[colors]}"
+  if ((${?} == yaml_type_num[map])); then
+    local -n colors="${ctx[colors]}"
+  else
+    local -A colors=()
+  fi
+
+  inochi-sos yaml::is_value "${colors[matugen]}"
+  if ((${?} == yaml_type_num[map])); then
+    local -n mtu="${colors[matugen]}"
+  else
+    warn 'Using fallback map for .colors.matugen'
+    local -A mtu=(['enabled']=true ['on_video']=true ['fallback']='#ff4fa3')
+  fi
 
   local mtu_enabled mtu_on_video
   to-boolean mtu_enabled "${mtu[enabled]}"
@@ -352,8 +388,13 @@ function dispatch::colors {
   fi
 
   if ((WINU_COLOR_PALLETE[missing])); then
-    yaml::ensure map .colors.palette "${1}"
-    local -n c="${colors[palette]}"
+    inochi-sos yaml::is_value "${colors[palette]}"
+    if ((${?} == yaml_type_num[map])); then
+      local -n c="${colors[palette]}"
+    else
+      warn 'Using fallback map for .colors.palette'
+      local -A c=()
+    fi
     log 'Using static color palette...'
 
     WINU_COLOR_PALLETE[background]="${c[background]:-#11111b}"
@@ -374,37 +415,24 @@ function dispatch::colors {
   done
 }
 
-function dispatch::carousel {
-  yaml::ensure map .carousel "${1}"
-  local -n ctx="${1}"
-  local -n carr="${ctx[carousel]}"
-
-  local carr_enabled carr_interval
-  to-boolean carr_enabled "${carr[enabled]}"
-  fill-template "carousel_enabled" "${carr_enabled}"
-
-  to-natural carr_interval "${carr[interval]}" 30000
-  fill-template "carousel_interval" "${carr_interval}"
-}
-
 function dispatch::background {
   yaml::ensure list .background.sources "${1}"
   local -n ctx="${1}"
   local -n images_n="${2}"
   local -n videos_n="${3}"
-  local -n use_video_n="${4}"
+  local -n use_video_bg="${4}"
   local -n background="${ctx[background]}"
   local -n sources="${background[sources]}"
 
   log "Checking background file paths..."
   for bg in "${sources[@]}"; do
-    [[ -f "${bg}" ]] || die "File ${bg} does not exist, or is inaccessible"
+    [[ -f "${bg}" ]] || die "File '${bg}' does not exist, or is inaccessible"
     if is-video "${bg}"; then
       videos_n+=("${bg}")
     elif is-image "${bg}"; then
       images_n+=("${bg}")
     else
-      die "File ${bg} **may** not a valid background"
+      die "File '${bg}' **may** not a valid background"
     fi
   done
 
@@ -423,8 +451,8 @@ function dispatch::background {
   WINU_CONFIG_TEMPLATE="${WINU_CONFIG_TEMPLATE/\{bg_list\}/"${__bgs}"}"
 
   log 'Background options...'
-  to-boolean use_video_n "${background[use_video]}"
-  fill-template "use_video" "${use_video_n}"
+  to-boolean use_video_bg "${background[use_video]}"
+  fill-template "use_video" "${use_video_bg}"
 
   local intensity
   to-natural intensity "${background[blur]}" 0
@@ -440,7 +468,21 @@ function dispatch::background {
   fill-template "blur_radius" "${radius}"
   fill-template "blur_samples" "${samples}"
 
-  dispatch::carousel "${ctx[background]}"
+
+  inochi-sos yaml::is_value "${background[carousel]}"
+  if ((${?} == yaml_type_num[map])); then
+    local -n carr="${background[carousel]}"
+  else
+    warn 'Using fallback map for .background.carousel'
+    local -A carr=(['enabled']=true ['interval']=30000)
+  fi
+
+  local carr_enabled carr_interval
+  to-boolean carr_enabled "${carr[enabled]}"
+  fill-template "carousel_enabled" "${carr_enabled}"
+
+  to-natural carr_interval "${carr[interval]}" 30000
+  fill-template "carousel_interval" "${carr_interval}"
 }
 
 function dispatch::fonts {
@@ -448,10 +490,16 @@ function dispatch::fonts {
   local -n ctx="${1}"
   local -n fonts="${ctx[fonts]}"
 
-  log "Validating typography families..."
-  for font in "${!fonts[@]}"; do
-    local font_fam="${fonts["${font}"]}"
-    is-valid-font "${font_fam}" || die "Font family '${font_fam}' not found globally"
+  local trust_blindly
+  to-boolean trust_blindly "${fonts[trust_blindly]}"
+
+  log "Adding typography families..."
+  for font in 'primary' 'segoe_ui' 'meiryo_boot'; do
+    local font_fam="${fonts["${font}"]:-null}"
+    [[ "${font_fam}" != 'null' ]] || die "Font family for ${font} is required"
+    if ! ${trust_blindly}; then
+      is-valid-font "${font_fam}" || die "Font family '${font_fam}' not found globally"
+    fi
     fill-template "font:${font}" "${font_fam}" "Adding font"
   done
 }
@@ -493,18 +541,21 @@ function winu::sync_config {
 }
 
 function winu::setup {
-  [[ -z "${installation[source]}" ]] && die "Missing source path (path to git cloned repo)"
+  [[ "${installation[source]:-null}" == 'null' ]] && die "Missing source path (path to git cloned repo)"
   local source_path="${installation[source]}"
   [[ -d "${source_path}" ]] || die "Source path does not exist"
   local pkg_to_install=(
-    qt5-base qt5-declarative qt5-quickcontrols2
-    qt5-graphicaleffects qt5-multimedia qt5-wayland
-    inotify-tools procps-ng util-linux dbus sddm
+    sddm qt5-base qt5-declarative qt5-quickcontrols2
+    qt5-graphicaleffects qt5-multimedia
   )
 
-  local optional_pkg_too
-  to-boolean optional_pkg_too "${installation[optional_deps]}"
-  ${optional_pkg_too} && pkg_to_install+=(ffmpeg imagemagick matugen)
+  local opt_pkg_too comp_pkg_too
+  to-boolean opt_pkg_too "${installation[optional_deps]}"
+  to-boolean comp_pkg_too "${installation[compositor_deps]}"
+
+  ${wayland_enabled} && pkg_to_install+=(qt5-wayland)
+  ${opt_pkg_too} && pkg_to_install+=(ffmpeg imagemagick matugen)
+  ${comp_pkg_too} && pkg_to_install+=(inotify-tools procps-ng util-linux dbus)
 
   log "Installing selected dependencies..."
   pacman -Sy --noconfirm --needed "${pkg_to_install[@]}" || {
@@ -605,7 +656,12 @@ function main {
 
   yaml::ensure map .installation __ynml
   local -n installation="${__ynml[installation]}"
-  readonly WINU_THEME_ROOT="${installation[root]:-${WINU_THEME_ROOT}}"
+  local wayland_enabled
+  to-boolean wayland_enabled "${installation[wayland]}" true
+  readonly WINU_THEME_ROOT="${installation[root]}"
+  [[ "${WINU_THEME_ROOT:-null}" == 'null' ]] && {
+    die 'Expected .installation.root to be the target path for theme, found nothing'
+  }
   readonly WINU_MATUGEN_CONFIG="${WINU_THEME_ROOT}/matugen.toml"
 
   case "${1}" in

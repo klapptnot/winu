@@ -3,7 +3,9 @@ inactive_timeout: 10000     # Time before switching back to clock, in ms
 installation:
   root: "/usr/share/sddm/themes/winu"  # Where theme is going to get installed
   source: "/home/user/repos/winu"      # Cloned repo for sources
-  optional_deps: true       # Install deps for dynamic theming
+  wayland: true         # Enable wayland support
+  optional_deps: true   # Dynamic theming deps
+  compositor_deps: true # VT1-wake-up compositor wrapper (wayland only)
 
 background:
   use_video: false          # Use video wallpapers if any (looping)
@@ -43,6 +45,7 @@ avatar:
   static: false  # Prevents avatar from changing with matugen
 
 fonts:
+  trust_blindly: false                 # Skip checking if font family exists in system
   primary: "Sora"                      # Main UI font used across the system
   segoe_ui: "Segoe Fluent Icons"       # Icon font required for UI symbols and indicators
   meiryo_boot: "Meiryo Boot"           # Icon font required for spinner animation
