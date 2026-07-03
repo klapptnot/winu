@@ -146,15 +146,11 @@ function is-command {
 }
 
 if [[ ! -f ./yaml.sh ]]; then
-  ((UID == 0)) && die "Missing yaml.sh: Run as a normal user to resolve"
-  [[ -t 1 && -t 2 ]] || die "Missing yaml.sh: Run interactive to resolve"
+  ((UID == 0)) && die "yaml.sh missing: run as a normal user to resolve"
 
-  printf '\x1b[33myaml.sh missing. Download it here? [y/N]: \x1b[0m'
-  read -rt 10 response || die 'Timeout while waiting for confirmation, aborted'
-  [[ -z "${response}" || -n "${response#[Yy]}" ]] && die "Aborted"
-
-  is-command curl || die "Error: curl is required"
-  curl -fsSL "${KITSH_YAML_SH}" -o "yaml.sh" || die "Error: Download yaml.sh failed"
+  warn 'yaml.sh missing: downloading from kitsh...'
+  is-command curl || die "curl is required to download yaml.sh"
+  curl -fsSL "${KITSH_YAML_SH}" -o "yaml.sh" || die "Failed to download yaml.sh"
 fi
 
 source ./yaml.sh || die 'Unable to load yaml.sh'
@@ -619,9 +615,10 @@ function winu::help {
     '    and is only available when the original user can be determined (e.g. via sudo)'
     ''
     "${b}Examples${r}:"
-    "  sudo ${c}winu${r} setup"
+    "  sudo ${c}winu${r} setup /etc/winu.yaml"
     "  sudo ${c}winu${r} sync /etc/winu.yaml"
-    "  ${c}winu${r} test"
+    "  sudo ${c}winu${r} setup"
+    "  sudo ${c}winu${r} sync"
   )
 
   printf '%b\n' "${help_lines[@]}"
