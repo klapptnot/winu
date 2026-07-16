@@ -61,10 +61,7 @@ QtObject {
   }
 }
 '
-declare -grA MATUGEN_DEFAULT_OPTS=(
-  ['mode']="dark"
-  ['prefer']="saturation"
-)
+
 declare -Ag WINU_COLOR_PALLETE=(['missing']=1)
 declare -gra messages=(
   "sowwy i ate your ram :b"
@@ -249,8 +246,7 @@ function dispatch::compositor {
   }
   local -n ctx="${1}"
 
-  inochi-sos yaml::is_value "${ctx[compositor]}"
-  if ((${?} != yaml_type_num[map])); then
+  if ! yaml::is map "${ctx[compositor]}"; then
     log "Compositor script skipped due to missing .compositor map"
     return
   fi
@@ -266,8 +262,7 @@ function dispatch::compositor {
     local compositor_timeout
     to-natural compositor_timeout "${comp_item[timeout]}" 15
 
-    inochi-sos yaml::is_value "${comp_item[args]}"
-    if ((${?} == 2)); then
+    if yaml::is list "${comp_item[args]}"; then
       local -n _ca="${comp_item[args]}"
       compositor+=("${_ca[@]}")
     fi
@@ -282,8 +277,7 @@ function dispatch::compositor {
 function dispatch::avatar {
   local -n ctx="${1}"
 
-  inochi-sos yaml::is_value "${ctx[avatar]}"
-  if ((${?} == yaml_type_num[map])); then
+  if yaml::is map "${ctx[avatar]}"; then
     local -n avatar="${ctx[avatar]}"
   else
     warn 'Using fallback map for .avatar'
@@ -332,15 +326,13 @@ function dispatch::colors {
   local first_img="${3}"
   local first_vid="${4}"
 
-  inochi-sos yaml::is_value "${ctx[colors]}"
-  if ((${?} == yaml_type_num[map])); then
+  if yaml::is map "${ctx[colors]}"; then
     local -n colors="${ctx[colors]}"
   else
     local -A colors=()
   fi
 
-  inochi-sos yaml::is_value "${colors[matugen]}"
-  if ((${?} == yaml_type_num[map])); then
+  if yaml::is map "${colors[matugen]}"; then
     local -n mtu="${colors[matugen]}"
   else
     warn 'Using fallback map for .colors.matugen'
@@ -366,11 +358,10 @@ function dispatch::colors {
       color_source_image="${first_img}"
     fi
 
-    inochi-sos yaml::is_value "${mtu[options]}"
-    if ((${?} == yaml_type_num[map])); then
+    if yaml::is map "${mtu[options]}"; then
       local -n mtu_opts="${mtu[options]}"
     else
-      local -n mtu_opts=MATUGEN_DEFAULT_OPTS
+      local -A mtu_opts=(['mode']='dark' ['prefer']='saturation')
     fi
 
     source <(matugen-wrapper image "${color_source_image}")
@@ -384,8 +375,7 @@ function dispatch::colors {
   fi
 
   if ((WINU_COLOR_PALLETE[missing])); then
-    inochi-sos yaml::is_value "${colors[palette]}"
-    if ((${?} == yaml_type_num[map])); then
+    if yaml::is map "${colors[palette]}"; then
       local -n c="${colors[palette]}"
     else
       warn 'Using fallback map for .colors.palette'
@@ -465,8 +455,7 @@ function dispatch::background {
   fill-template "blur_samples" "${samples}"
 
 
-  inochi-sos yaml::is_value "${background[carousel]}"
-  if ((${?} == yaml_type_num[map])); then
+  if yaml::is map "${background[carousel]}"; then
     local -n carr="${background[carousel]}"
   else
     warn 'Using fallback map for .background.carousel'
